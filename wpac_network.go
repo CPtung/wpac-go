@@ -24,6 +24,7 @@ type WPANetwork struct {
 	busObject dbus.BusObject
 	Object    dbus.ObjectPath
 	Enable    bool
+	ID        int
 	BSSID     string
 	SSID      string
 	PSK       string
@@ -32,16 +33,27 @@ type WPANetwork struct {
 	Mode      string
 	PairWise  string
 	Group     string
+	Frequency uint16
 	Priority  int64
 }
 
 // NewNetwork ...
-func NewWPANetwork(bus *WPADBus, objPath dbus.ObjectPath) WPANetwork {
+func NewWPANetwork(bus *WPADBus, objPath dbus.ObjectPath, ID int) WPANetwork {
 	obj := bus.Connection.Object("fi.w1.wpa_supplicant1", objPath)
-	network := WPANetwork{busObject: obj, Object: objPath}
+	network := WPANetwork{busObject: obj, Object: objPath, ID: ID}
 	network.readEnable()
 	network.readProp()
 	return network
+}
+
+func (wn *WPANetwork) writeEnable(enabled bool) error {
+	v := dbus.MakeVariant(enabled)
+	return wn.busObject.SetProperty("fi.w1.wpa_supplicant1.Network.Enabled", v)
+}
+
+func (wn *WPANetwork) writeProp(props map[string]dbus.Variant) error {
+	v := dbus.MakeVariant(props)
+	return wn.busObject.SetProperty("fi.w1.wpa_supplicant1.Network.Properties", v)
 }
 
 func (wn *WPANetwork) readEnable() error {

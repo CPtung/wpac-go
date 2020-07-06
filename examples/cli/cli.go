@@ -23,6 +23,7 @@ var (
 	cfile    string
 	security string
 	interval int32
+	id       int
 	ctx      context.Context
 	wpacli   *wpa.WPA
 )
@@ -49,6 +50,12 @@ var connectCmd = &cobra.Command{
 	Use:   "connect",
 	Short: "wpac connect",
 	Run:   connectMode,
+}
+
+var setCmd = &cobra.Command{
+	Use:   "set_network",
+	Short: "wpac set_network",
+	Run:   setMode,
 }
 
 var reattachCmd = &cobra.Command{
@@ -132,11 +139,17 @@ func networksMode(cmd *cobra.Command, args []string) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "bssid\tssid\tkeymgmt\tenable")
+	fmt.Fprintln(w, "id\tbssid\tssid\tpsk\tkeymgmt\tenable")
 	for _, network := range networks {
 		ap := strings.Builder{}
-		ap.WriteString(fmt.Sprintf("%s", network.BSSID))
+		ap.WriteString(fmt.Sprintf("%d", network.ID))
+		if network.BSSID == "" {
+			ap.WriteString(fmt.Sprintf("\t%s", "-"))
+		} else {
+			ap.WriteString(fmt.Sprintf("\t%s", network.BSSID))
+		}
 		ap.WriteString(fmt.Sprintf("\t%s", network.SSID))
+		ap.WriteString(fmt.Sprintf("\t%s", network.PSK))
 		ap.WriteString(fmt.Sprintf("\t%s", network.KeyMgmt))
 		ap.WriteString(fmt.Sprintf("\t%v", network.Enable))
 		fmt.Fprintln(w, ap.String())
@@ -201,13 +214,38 @@ func connectMode(cmd *cobra.Command, args []string) {
 	case "wpa2":
 		config = wpa.WPAConfig().GetWPA2(bss)
 	}
-	if err := wpacli.GetInterface(ifname).AddNetwork(config); err != nil {
+	network, err := wpacli.GetInterface(ifname).AddNetwork(config)
+	if err != nil {
 		printUsage(cmd, fmt.Errorf("add network error (%s)", err.Error()))
 	}
 
-	// select network
-	if err := wpacli.GetInterface(ifname).SelectNetwork(bss.BSSID); err != nil {
+	if err := wpacli.GetInterface(ifname).SelectNetwork(network.ID); err != nil {
 		printUsage(cmd, fmt.Errorf("select network error (%s)", err.Error()))
+	}
+}
+
+func setMode(cmd *cobra.Command, args []string) {
+	var (
+		bss    wpa.WPABSS
+		config map[string]dbus.Variant
+	)
+
+	bss = wpa.WPABSS{}
+	if err := loadConfig(cfile, &bss); err != nil {
+		printUsage(cmd, err)
+	}
+
+	switch security {
+	case "none":
+		config = wpa.WPAConfig().GetWPANone(bss)
+	case "wpa":
+		config = wpa.WPAConfig().GetWPA2(bss)
+	case "wpa2":
+		config = wpa.WPAConfig().GetWPA2(bss)
+	}
+	err := wpacli.GetInterface(ifname).SetNetwork(id, config)
+	if err != nil {
+		fmt.Println(err.Error())
 	}
 }
 
@@ -306,10 +344,13 @@ func init() {
 	connectCmd.Flags().StringVarP(&cfile, "config", "c", "", "target network config")
 	connectCmd.Flags().StringVarP(&security, "security", "s", "wpa2", "target network security (\"none\", \"wpa\", \"wpa2\")")
 	scanCmd.Flags().Int32VarP(&interval, "interval", "I", -1, "target scan interval (interval > 0)")
+	setCmd.Flags().IntVar(&id, "id", 0, "target network id")
+	setCmd.Flags().StringVarP(&cfile, "config", "c", "", "target network config")
 	rootCmd.AddCommand(stateCmd)
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(networksCmd)
 	rootCmd.AddCommand(connectCmd)
+	rootCmd.AddCommand(setCmd)
 	rootCmd.AddCommand(reattachCmd)
 	rootCmd.AddCommand(reassociateCmd)
 	rootCmd.AddCommand(removeCmd)

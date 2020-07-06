@@ -22,7 +22,7 @@ type WPAInterface struct {
 	bus       *WPADBus
 	ctx       context.Context
 	ifacePath dbus.ObjectPath
-	networks  map[string]WPANetwork
+	networks  map[int]WPANetwork
 }
 
 //func NewWPAInterface(bus *WPADBus, objectPath dbus.ObjectPath) *WPAInterface {
@@ -30,7 +30,7 @@ func NewWPAInterface(ctx context.Context, bus *WPADBus) *WPAInterface {
 	wi := &WPAInterface{
 		bus:      bus,
 		ctx:      ctx,
-		networks: make(map[string]WPANetwork),
+		networks: make(map[int]WPANetwork),
 	}
 	return wi
 }
@@ -182,28 +182,45 @@ func (self *WPAInterface) AutoScan() ([]WPABSS, error) {
 	return self.GetBSSList(), nil
 }
 
-func (self *WPAInterface) AddNetwork(args map[string]dbus.Variant) error {
+func (self *WPAInterface) AddNetwork(args map[string]dbus.Variant) (*WPANetwork, error) {
 	if _, ok := args["bssid"]; ok {
 		bssid := args["bssid"].Value().(string)
-		if _, found := self.networks[bssid]; found {
-			return nil
+		for _, network := range self.networks {
+			if network.BSSID == bssid {
+				return &network, nil
+			}
 		}
 	}
 
 	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	call := obj.Call("fi.w1.wpa_supplicant1.Interface.AddNetwork", 0, args)
 	if call.Err != nil || len(call.Body) == 0 {
-		return call.Err
+		return nil, call.Err
 	}
 
 	networkObj := dbus.ObjectPath(call.Body[0].(dbus.ObjectPath))
-	network := NewWPANetwork(self.bus, networkObj)
-	self.networks[network.BSSID] = network
-	return nil
+	id := len(self.networks)
+	network := NewWPANetwork(self.bus, networkObj, id)
+	self.networks[id] = network
+	return &network, nil
 }
 
-func (self *WPAInterface) SelectNetwork(bssid string) error {
-	if network, found := self.networks[bssid]; found {
+func (self *WPAInterface) SetNetwork(id int, args map[string]dbus.Variant) error {
+	if network, found := self.networks[id]; found {
+		return network.writeProp(args)
+	}
+	return fmt.Errorf("network %d not found", id)
+}
+
+func (self *WPAInterface) SetNetworkEnabled(id int, enabled bool) error {
+	if network, found := self.networks[id]; found {
+		return network.writeEnable(enabled)
+	}
+	return fmt.Errorf("network %d not found", id)
+}
+
+func (self *WPAInterface) SelectNetwork(id int) error {
+	if network, found := self.networks[id]; found {
 		obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 		call := obj.Call("fi.w1.wpa_supplicant1.Interface.SelectNetwork", 0, network.Object)
 		if call.Err != nil {
@@ -213,14 +230,14 @@ func (self *WPAInterface) SelectNetwork(bssid string) error {
 	return nil
 }
 
-func (self *WPAInterface) RemoveNetwork(bssid string) error {
-	if networkObj, found := self.networks[bssid]; found {
+func (self *WPAInterface) RemoveNetwork(id int) error {
+	if networkObj, found := self.networks[id]; found {
 		obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
-		if call := obj.Call("fi.w1.wpa_supplicant1.Interface.RemoveNetwork", 0, networkObj); call.Err != nil {
+		if call := obj.Call("fi.w1.wpa_supplicant1.Interface.RemoveNetwork", 0, networkObj.Object); call.Err != nil {
 			return call.Err
 		}
 	}
-	return fmt.Errorf("network (%s) not found", bssid)
+	return fmt.Errorf("network (%d) not found", id)
 }
 
 func (self *WPAInterface) RemoveAllNetwork() error {
@@ -231,16 +248,17 @@ func (self *WPAInterface) RemoveAllNetwork() error {
 	return nil
 }
 
-func (self *WPAInterface) GetNetworks() (map[string]WPANetwork, error) {
+func (self *WPAInterface) GetNetworks() (map[int]WPANetwork, error) {
 	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	ifaces, err := obj.GetProperty("fi.w1.wpa_supplicant1.Interface.Networks")
 	if err != nil {
 		return nil, err
 	}
+
 	networks := ifaces.Value().([]dbus.ObjectPath)
-	for _, network := range networks {
-		wn := NewWPANetwork(self.bus, network)
-		self.networks[wn.BSSID] = wn
+	for id, network := range networks {
+		wn := NewWPANetwork(self.bus, network, id)
+		self.networks[id] = wn
 	}
 	return self.networks, nil
 }
