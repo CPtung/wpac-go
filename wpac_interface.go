@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"time"
 
@@ -18,18 +19,18 @@ const (
 )
 
 type WPAInterface struct {
-	Bus       *WPADBus
-	Ctx       context.Context
-	IfacePath dbus.ObjectPath
-	Networks  map[string]WPANetwork
+	bus       *WPADBus
+	ctx       context.Context
+	ifacePath dbus.ObjectPath
+	networks  map[string]WPANetwork
 }
 
 //func NewWPAInterface(bus *WPADBus, objectPath dbus.ObjectPath) *WPAInterface {
 func NewWPAInterface(ctx context.Context, bus *WPADBus) *WPAInterface {
 	wi := &WPAInterface{
-		Bus:      bus,
-		Ctx:      ctx,
-		Networks: make(map[string]WPANetwork),
+		bus:      bus,
+		ctx:      ctx,
+		networks: make(map[string]WPANetwork),
 	}
 	return wi
 }
@@ -40,43 +41,58 @@ func (w *WPAInterface) CreateInterface(ifname string) error {
 		ifname = DefaultIfaceName
 	}
 	if ifpath, err := w.GetInterface(ifname); err == nil {
-		w.IfacePath = ifpath
+		w.ifacePath = ifpath
 		return nil
 	}
 
 	args := make(map[string]dbus.Variant)
 	args["Ifname"] = dbus.MakeVariant(ifname)
 	args["Driver"] = dbus.MakeVariant("nl80211")
-	iface, err := w.Bus.CallWithVariant("fi.w1.wpa_supplicant1.CreateInterface", args)
+	iface, err := w.bus.CallWithVariant("fi.w1.wpa_supplicant1.CreateInterface", args)
 	if err != nil && err.Error() != ErrInterfaceExists {
-		w.IfacePath = ""
+		w.ifacePath = ""
 		return err
 	}
-	w.IfacePath = iface
+	w.ifacePath = iface
 	return nil
 }
 
 func (w *WPAInterface) GetInterface(ifname string) (dbus.ObjectPath, error) {
-	iface, err := w.Bus.CallWithString("fi.w1.wpa_supplicant1.GetInterface", ifname)
+	iface, err := w.bus.CallWithString("fi.w1.wpa_supplicant1.GetInterface", ifname)
 	if err != nil {
 		return "", err
 	}
 	return iface, nil
 }
 
+func (w *WPAInterface) GetInterfaces() ([]dbus.ObjectPath, error) {
+	prop, err := w.bus.GetProperty("fi.w1.wpa_supplicant1.Interfaces")
+	if err != nil {
+		return nil, err
+	}
+	ifaces, ok := prop.([]dbus.ObjectPath)
+	if !ok {
+		return nil, errors.New("get interfaces error")
+	}
+	for _, iface := range ifaces {
+		log.Printf("iface: %s\n", iface)
+	}
+	return nil, nil
+}
+
 func (w *WPAInterface) CloseInterface() error {
-	if w.IfacePath == "" {
+	if w.ifacePath == "" {
 		return errors.New("interface doesn't exist or doesn't represent an interface")
 	}
-	ifacePath := dbus.ObjectPath(w.IfacePath)
-	if _, err := w.Bus.CallWithPath("fi.w1.wpa_supplicant1.RemoveInterface", ifacePath); err != nil {
+	ifacePath := dbus.ObjectPath(w.ifacePath)
+	if _, err := w.bus.CallWithPath("fi.w1.wpa_supplicant1.RemoveInterface", ifacePath); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (self *WPAInterface) State() string {
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	state, err := obj.GetProperty("fi.w1.wpa_supplicant1.Interface.State")
 	if err != nil {
 		return "unknown"
@@ -86,7 +102,7 @@ func (self *WPAInterface) State() string {
 
 // GetScanInterval Time (in seconds) between scans for a suitable AP. Must be >= 0.
 func (self *WPAInterface) GetScanInterval() (int32, error) {
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	interval, err := obj.GetProperty("fi.w1.wpa_supplicant1.Interface.ScanInterval")
 	if err != nil {
 		return -1, err
@@ -96,7 +112,7 @@ func (self *WPAInterface) GetScanInterval() (int32, error) {
 
 func (self *WPAInterface) SetScanInterval(interval int32) error {
 	value := dbus.MakeVariant(interval)
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	err := obj.SetProperty("fi.w1.wpa_supplicant1.Interface.ScanInterval", value)
 	if err != nil {
 		return err
@@ -107,7 +123,7 @@ func (self *WPAInterface) SetScanInterval(interval int32) error {
 func (self *WPAInterface) Scan() error {
 	args := make(map[string]dbus.Variant)
 	args["Type"] = dbus.MakeVariant("passive")
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	if call := obj.Call("fi.w1.wpa_supplicant1.Interface.Scan", 0, args); call.Err != nil {
 		return call.Err
 	}
@@ -117,12 +133,12 @@ func (self *WPAInterface) Scan() error {
 func (self *WPAInterface) GetBSSList() []WPABSS {
 	newBSSs := []WPABSS{}
 	tmpBSSs := make(map[string]string)
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	bsss, err := obj.GetProperty("fi.w1.wpa_supplicant1.Interface.BSSs")
 	if err == nil {
 		re := regexp.MustCompile(`^[\w\s_.-]*$`)
 		for _, bssObjectPath := range bsss.Value().([]dbus.ObjectPath) {
-			bss := NewBSS(self.Bus, bssObjectPath)
+			bss := NewBSS(self.bus, bssObjectPath)
 			if re.MatchString(bss.SSID) && bss.SSID != "" {
 				if _, found := tmpBSSs[bss.BSSID]; !found {
 					tmpBSSs[bss.BSSID] = bss.BSSID
@@ -141,7 +157,7 @@ func (self *WPAInterface) AutoScan() ([]WPABSS, error) {
 	}
 
 	done := make(chan struct{})
-	signal := self.Bus.GetSignal()
+	signal := self.bus.GetSignal()
 	timeout := time.After(time.Duration(interval) * time.Second)
 	if err := self.Scan(); err != nil {
 		return nil, err
@@ -167,26 +183,28 @@ func (self *WPAInterface) AutoScan() ([]WPABSS, error) {
 }
 
 func (self *WPAInterface) AddNetwork(args map[string]dbus.Variant) error {
-	bssid := args["bssid"].Value().(string)
-	if _, found := self.Networks[bssid]; found {
-		return nil
+	if _, ok := args["bssid"]; ok {
+		bssid := args["bssid"].Value().(string)
+		if _, found := self.networks[bssid]; found {
+			return nil
+		}
 	}
 
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	call := obj.Call("fi.w1.wpa_supplicant1.Interface.AddNetwork", 0, args)
 	if call.Err != nil || len(call.Body) == 0 {
 		return call.Err
 	}
 
 	networkObj := dbus.ObjectPath(call.Body[0].(dbus.ObjectPath))
-	network := NewWPANetwork(self.Bus, networkObj)
-	self.Networks[network.BSSID] = network
+	network := NewWPANetwork(self.bus, networkObj)
+	self.networks[network.BSSID] = network
 	return nil
 }
 
 func (self *WPAInterface) SelectNetwork(bssid string) error {
-	if network, found := self.Networks[bssid]; found {
-		obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	if network, found := self.networks[bssid]; found {
+		obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 		call := obj.Call("fi.w1.wpa_supplicant1.Interface.SelectNetwork", 0, network.Object)
 		if call.Err != nil {
 			return call.Err
@@ -196,8 +214,8 @@ func (self *WPAInterface) SelectNetwork(bssid string) error {
 }
 
 func (self *WPAInterface) RemoveNetwork(bssid string) error {
-	if networkObj, found := self.Networks[bssid]; found {
-		obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	if networkObj, found := self.networks[bssid]; found {
+		obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 		if call := obj.Call("fi.w1.wpa_supplicant1.Interface.RemoveNetwork", 0, networkObj); call.Err != nil {
 			return call.Err
 		}
@@ -206,29 +224,29 @@ func (self *WPAInterface) RemoveNetwork(bssid string) error {
 }
 
 func (self *WPAInterface) RemoveAllNetwork() error {
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	if call := obj.Call("fi.w1.wpa_supplicant1.Interface.RemoveAllNetworks", 0); call.Err != nil {
 		return call.Err
 	}
 	return nil
 }
 
-func (self *WPAInterface) GetNetworks() error {
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+func (self *WPAInterface) GetNetworks() (map[string]WPANetwork, error) {
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	ifaces, err := obj.GetProperty("fi.w1.wpa_supplicant1.Interface.Networks")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	networks := ifaces.Value().([]dbus.ObjectPath)
 	for _, network := range networks {
-		wn := NewWPANetwork(self.Bus, network)
-		self.Networks[wn.BSSID] = wn
+		wn := NewWPANetwork(self.bus, network)
+		self.networks[wn.BSSID] = wn
 	}
-	return nil
+	return self.networks, nil
 }
 
 func (self *WPAInterface) Reassociate() error {
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	call := obj.Call("fi.w1.wpa_supplicant1.Interface.Reassociate", 0)
 	if call.Err != nil {
 		return call.Err
@@ -237,7 +255,7 @@ func (self *WPAInterface) Reassociate() error {
 }
 
 func (self *WPAInterface) Reattach() error {
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	call := obj.Call("fi.w1.wpa_supplicant1.Interface.Reattach", 0)
 	if call.Err != nil {
 		return call.Err
@@ -246,7 +264,7 @@ func (self *WPAInterface) Reattach() error {
 }
 
 func (self *WPAInterface) Reconnect() error {
-	obj := self.Bus.Connection.Object("fi.w1.wpa_supplicant1", self.IfacePath)
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	call := obj.Call("fi.w1.wpa_supplicant1.Interface.Reconnect", 0)
 	if call.Err != nil {
 		return call.Err
@@ -263,23 +281,23 @@ func (w *WPAInterface) eventUpdate(name string, body []interface{}) {
 }
 
 func (w *WPAInterface) eventListener() {
-	signal := w.Bus.GetSignal()
+	signal := w.bus.GetSignal()
 	for {
 		select {
 		case event := <-signal:
 			w.eventUpdate(event.Name, event.Body)
-		case <-w.Ctx.Done():
+		case <-w.ctx.Done():
 			return
 		}
 	}
 }
 
 func (w *WPAInterface) AddEventListener() error {
-	if w.IfacePath == "" {
+	if w.ifacePath == "" {
 		return errors.New("interface not ready")
 	}
-	obj := w.Bus.Connection.Object("fi.w1.wpa_supplicant1", w.IfacePath)
-	if err := w.Bus.AddSignalObserver("fi.w1.wpa_supplicant1.Interface", obj.Path()); err != nil {
+	obj := w.bus.Connection.Object("fi.w1.wpa_supplicant1", w.ifacePath)
+	if err := w.bus.AddSignalObserver("fi.w1.wpa_supplicant1.Interface", obj.Path()); err != nil {
 		return err
 	}
 	return nil

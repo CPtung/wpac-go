@@ -39,6 +39,12 @@ var scanCmd = &cobra.Command{
 	Run:   scanMode,
 }
 
+var networksCmd = &cobra.Command{
+	Use:   "networks",
+	Short: "wpac networks",
+	Run:   networksMode,
+}
+
 var connectCmd = &cobra.Command{
 	Use:   "connect",
 	Short: "wpac connect",
@@ -76,8 +82,9 @@ var eventCmd = &cobra.Command{
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "wpa",
-	Short: "WPA Client Util for MOXA ThingsPro",
+	Use:              "wpa",
+	Short:            "WPA Client Util for MOXA ThingsPro",
+	PersistentPreRun: PersistentPreRun,
 }
 
 func loadConfig(path string, bss *wpa.WPABSS) error {
@@ -87,7 +94,7 @@ func loadConfig(path string, bss *wpa.WPABSS) error {
 	}
 	defer file.Close()
 
-	re := regexp.MustCompile(`\s*(.*)=\"*([\w_.-@!~:]*)\"*`)
+	re := regexp.MustCompile(`\s*(.*)=\"*([\w\-_.@!~:]*)\"*`)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		matches := re.FindStringSubmatch(scanner.Text())
@@ -117,6 +124,24 @@ func printUsage(cmd *cobra.Command, err error) {
 
 func stateMode(cmd *cobra.Command, args []string) {
 	fmt.Printf("network state: %s\n", wpacli.GetInterface(ifname).State())
+}
+
+func networksMode(cmd *cobra.Command, args []string) {
+	networks, err := wpacli.GetInterface(ifname).GetNetworks()
+	if err != nil {
+		return
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(w, "bssid\tssid\tkeymgmt\tenable")
+	for _, network := range networks {
+		ap := strings.Builder{}
+		ap.WriteString(fmt.Sprintf("%s", network.BSSID))
+		ap.WriteString(fmt.Sprintf("\t%s", network.SSID))
+		ap.WriteString(fmt.Sprintf("\t%s", network.KeyMgmt))
+		ap.WriteString(fmt.Sprintf("\t%v", network.Enable))
+		fmt.Fprintln(w, ap.String())
+	}
+	w.Flush()
 }
 
 func scanMode(cmd *cobra.Command, args []string) {
@@ -217,7 +242,7 @@ func reattachMode(cmd *cobra.Command, args []string) {
 func reInitInterface(prop map[string]dbus.Variant) {
 	if name, found := prop["Ifname"]; found {
 		fmt.Println("interface (%s) up" + name.Value().(string))
-		if err := wpacli.AddInterface(name.Value().(string)); err != nil {
+		if err := wpacli.InitInterface(name.Value().(string)); err != nil {
 			fmt.Printf("add interface error (%s)\n", err.Error())
 		}
 	}
@@ -270,13 +295,20 @@ func shutdownMode(cmd *cobra.Command, args []string) {
 	wpacli.RemoveInterface(ifname)
 }
 
+func PersistentPreRun(cmd *cobra.Command, args []string) {
+	if err := wpacli.InitInterface(ifname); err != nil {
+		log.Fatalf(err.Error())
+	}
+}
+
 func init() {
-	rootCmd.Flags().StringVarP(&ifname, "iface", "i", "wlan0", "target interface")
+	rootCmd.PersistentFlags().StringVarP(&ifname, "iface", "i", "wlan0", "target interface")
 	connectCmd.Flags().StringVarP(&cfile, "config", "c", "", "target network config")
 	connectCmd.Flags().StringVarP(&security, "security", "s", "wpa2", "target network security (\"none\", \"wpa\", \"wpa2\")")
-	scanCmd.Flags().Int32VarP(&interval, "interval", "i", -1, "target scan interval (interval > 0)")
+	scanCmd.Flags().Int32VarP(&interval, "interval", "I", -1, "target scan interval (interval > 0)")
 	rootCmd.AddCommand(stateCmd)
 	rootCmd.AddCommand(scanCmd)
+	rootCmd.AddCommand(networksCmd)
 	rootCmd.AddCommand(connectCmd)
 	rootCmd.AddCommand(reattachCmd)
 	rootCmd.AddCommand(reassociateCmd)
@@ -287,15 +319,10 @@ func init() {
 
 func main() {
 	var err error
-
 	if wpacli, err = wpa.NewWPA(context.TODO()); err != nil {
 		log.Fatalf(err.Error())
 	}
 	defer wpacli.Close()
-
-	if err := wpacli.AddInterface(ifname); err != nil {
-		log.Fatalf(err.Error())
-	}
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -66,6 +66,18 @@ func (self *WPADBus) AddSignalObserver(dbusInterface string, object dbus.ObjectP
 	return self.Signal.AddObserver(dbusInterface, object)
 }
 
+func (self *WPADBus) Call(path string) (dbus.ObjectPath, error) {
+	var objectPath dbus.ObjectPath
+	call := self.Object.Call(path, 0)
+	if call.Err != nil {
+		return "", call.Err
+	}
+	if len(call.Body) > 0 {
+		objectPath = dbus.ObjectPath(call.Body[0].(dbus.ObjectPath))
+	}
+	return objectPath, nil
+}
+
 func (self *WPADBus) CallWithPath(path string, args dbus.ObjectPath) (dbus.ObjectPath, error) {
 	var objectPath dbus.ObjectPath
 	call := self.Object.Call(path, 0, args)

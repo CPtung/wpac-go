@@ -32,14 +32,14 @@ func NewWPA(ctx context.Context) (wpa *WPA, e error) {
 	return wpa, e
 }
 
-func (w *WPA) AddInterface(ifname string) error {
+func (w *WPA) InitInterface(ifname string) error {
 	iface := NewWPAInterface(w.ctx, w.bus)
 	if err := iface.CreateInterface(ifname); err != nil {
 		return err
 	}
 
 	// scan wpa network profiles on machine
-	if err := iface.GetNetworks(); err != nil {
+	if _, err := iface.GetNetworks(); err != nil {
 		return err
 	}
 
