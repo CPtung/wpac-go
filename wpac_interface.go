@@ -248,6 +248,14 @@ func (self *WPAInterface) RemoveAllNetwork() error {
 	return nil
 }
 
+func (self *WPAInterface) Disconnect() error {
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
+	if call := obj.Call("fi.w1.wpa_supplicant1.Interface.Disconnect", 0); call.Err != nil {
+		return call.Err
+	}
+	return nil
+}
+
 func (self *WPAInterface) GetNetworks() (map[int]WPANetwork, error) {
 	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	ifaces, err := obj.GetProperty("fi.w1.wpa_supplicant1.Interface.Networks")

@@ -52,6 +52,12 @@ var connectCmd = &cobra.Command{
 	Run:   connectMode,
 }
 
+var disconnectCmd = &cobra.Command{
+	Use:   "disconnect",
+	Short: "wpac disconnect",
+	Run:   disconnectMode,
+}
+
 var setCmd = &cobra.Command{
 	Use:   "set_network",
 	Short: "wpac set_network",
@@ -224,6 +230,13 @@ func connectMode(cmd *cobra.Command, args []string) {
 	}
 }
 
+func disconnectMode(cmd *cobra.Command, args []string) {
+	err := wpacli.GetInterface(ifname).Disconnect()
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
+
 func setMode(cmd *cobra.Command, args []string) {
 	var (
 		bss    wpa.WPABSS
@@ -350,6 +363,7 @@ func init() {
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(networksCmd)
 	rootCmd.AddCommand(connectCmd)
+	rootCmd.AddCommand(disconnectCmd)
 	rootCmd.AddCommand(setCmd)
 	rootCmd.AddCommand(reattachCmd)
 	rootCmd.AddCommand(reassociateCmd)
