@@ -58,6 +58,12 @@ var disconnectCmd = &cobra.Command{
 	Run:   disconnectMode,
 }
 
+var disconnectReasonCmd = &cobra.Command{
+	Use:   "disconnect_reason",
+	Short: "wpac disconnect_reason",
+	Run:   disconnectReasonMode,
+}
+
 var setCmd = &cobra.Command{
 	Use:   "set_network",
 	Short: "wpac set_network",
@@ -237,6 +243,14 @@ func disconnectMode(cmd *cobra.Command, args []string) {
 	}
 }
 
+func disconnectReasonMode(cmd *cobra.Command, args []string) {
+	if i, err := wpacli.GetInterface(ifname).DisconnectReason(); err == nil {
+		fmt.Printf("network disconnect code: %d\n", i)
+	} else {
+		fmt.Println(err.Error())
+	}
+}
+
 func setMode(cmd *cobra.Command, args []string) {
 	var (
 		bss    wpa.WPABSS
@@ -301,7 +315,17 @@ func reInitInterface(prop map[string]dbus.Variant) {
 
 func printState(prop map[string]dbus.Variant) {
 	if state, found := prop["State"]; found {
-		fmt.Printf("network State: %s\n", state.Value().(string))
+		if state.Value().(string) != "scanning" {
+			fmt.Printf("network State: %s\n", state.Value().(string))
+		}
+	}
+	if Scanning, found := prop["Scanning"]; found {
+		if Scanning.Value().(bool) {
+			fmt.Printf("network State: %s\n", "scanning")
+		}
+	}
+	if DisconnectReason, found := prop["DisconnectReason"]; found {
+		fmt.Printf("network Disconnect Code: %d\n", DisconnectReason.Value().(int32))
 	}
 }
 
@@ -321,6 +345,10 @@ func eventMode(cmd *cobra.Command, args []string) {
 				case wpa.SignalPropertiesChanged:
 					for _, data := range event.Body {
 						printState(data.(map[string]dbus.Variant))
+					}
+				case wpa.SignalScanDone:
+					if event.Body[0] == true {
+						fmt.Println("network State: scan completed")
 					}
 				case wpa.SignalInterfaceAdded:
 					for _, data := range event.Body {
@@ -364,6 +392,7 @@ func init() {
 	rootCmd.AddCommand(networksCmd)
 	rootCmd.AddCommand(connectCmd)
 	rootCmd.AddCommand(disconnectCmd)
+	rootCmd.AddCommand(disconnectReasonCmd)
 	rootCmd.AddCommand(setCmd)
 	rootCmd.AddCommand(reattachCmd)
 	rootCmd.AddCommand(reassociateCmd)
