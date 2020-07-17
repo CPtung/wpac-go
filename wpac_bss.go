@@ -33,6 +33,7 @@ type WPABSS struct {
 	Age       uint32         `json:"age"`
 	Mode      string         `json:"mode"`
 	Privacy   bool           `json:"privacy"`
+	Priority  int            `json:"priority"`
 }
 
 // NewBSS ...

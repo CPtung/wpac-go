@@ -183,14 +183,14 @@ func (self *WPAInterface) AutoScan() ([]WPABSS, error) {
 }
 
 func (self *WPAInterface) AddNetwork(args map[string]dbus.Variant) (*WPANetwork, error) {
-	if _, ok := args["bssid"]; ok {
-		bssid := args["bssid"].Value().(string)
-		for _, network := range self.networks {
-			if network.BSSID == bssid {
-				return &network, nil
-			}
-		}
-	}
+	// if _, ok := args["bssid"]; ok {
+	// 	bssid := args["bssid"].Value().(string)
+	// 	for _, network := range self.networks {
+	// 		if network.BSSID == bssid {
+	// 			return &network, nil
+	// 		}
+	// 	}
+	// }
 
 	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
 	call := obj.Call("fi.w1.wpa_supplicant1.Interface.AddNetwork", 0, args)
@@ -200,7 +200,7 @@ func (self *WPAInterface) AddNetwork(args map[string]dbus.Variant) (*WPANetwork,
 
 	networkObj := dbus.ObjectPath(call.Body[0].(dbus.ObjectPath))
 	id := len(self.networks)
-	network := NewWPANetwork(self.bus, networkObj, id)
+	network := NewWPANetwork(self.bus, networkObj)
 	self.networks[id] = network
 	return &network, nil
 }
@@ -272,12 +272,28 @@ func (self *WPAInterface) GetNetworks() (map[int]WPANetwork, error) {
 		return nil, err
 	}
 
+	self.networks = make(map[int]WPANetwork)
+
 	networks := ifaces.Value().([]dbus.ObjectPath)
 	for id, network := range networks {
-		wn := NewWPANetwork(self.bus, network, id)
+		wn := NewWPANetwork(self.bus, network)
 		self.networks[id] = wn
 	}
 	return self.networks, nil
+}
+
+func (self *WPAInterface) GetCurrentBSS() WPABSS {
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
+	iface, _ := obj.GetProperty("fi.w1.wpa_supplicant1.Interface.CurrentBSS")
+	bss := iface.Value().(dbus.ObjectPath)
+	return NewBSS(self.bus, bss)
+}
+
+func (self *WPAInterface) GetCurrentNetwork() WPANetwork {
+	obj := self.bus.Connection.Object("fi.w1.wpa_supplicant1", self.ifacePath)
+	iface, _ := obj.GetProperty("fi.w1.wpa_supplicant1.Interface.CurrentNetwork")
+	network := iface.Value().(dbus.ObjectPath)
+	return NewWPANetwork(self.bus, network)
 }
 
 func (self *WPAInterface) Reassociate() error {

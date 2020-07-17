@@ -88,6 +88,18 @@ var removeCmd = &cobra.Command{
 	Run:   removeMode,
 }
 
+var currentBSSCmd = &cobra.Command{
+	Use:   "current_bss",
+	Short: "wpac current_bss",
+	Run:   currentBSSMode,
+}
+
+var currentNetworkCmd = &cobra.Command{
+	Use:   "current_network",
+	Short: "wpac current_network",
+	Run:   currentNetworkMode,
+}
+
 var shutdownCmd = &cobra.Command{
 	Use:   "shutdown",
 	Short: "wpac shutdown",
@@ -251,6 +263,18 @@ func disconnectReasonMode(cmd *cobra.Command, args []string) {
 	}
 }
 
+func currentBSSMode(cmd *cobra.Command, args []string) {
+	b := wpacli.GetInterface(ifname).GetCurrentBSS()
+	fmt.Print(b)
+
+}
+
+func currentNetworkMode(cmd *cobra.Command, args []string) {
+	n := wpacli.GetInterface(ifname).GetCurrentNetwork()
+	fmt.Print(n)
+
+}
+
 func setMode(cmd *cobra.Command, args []string) {
 	var (
 		bss    wpa.WPABSS
@@ -399,6 +423,8 @@ func init() {
 	rootCmd.AddCommand(removeCmd)
 	rootCmd.AddCommand(shutdownCmd)
 	rootCmd.AddCommand(eventCmd)
+	rootCmd.AddCommand(currentBSSCmd)
+	rootCmd.AddCommand(currentNetworkCmd)
 }
 
 func main() {
