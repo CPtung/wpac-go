@@ -3,6 +3,7 @@ package wpac
 import (
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -38,8 +39,10 @@ type WPANetwork struct {
 }
 
 // NewNetwork ...
-func NewWPANetwork(bus *WPADBus, objPath dbus.ObjectPath, ID int) WPANetwork {
+func NewWPANetwork(bus *WPADBus, objPath dbus.ObjectPath) WPANetwork {
 	obj := bus.Connection.Object("fi.w1.wpa_supplicant1", objPath)
+	s := strings.Split(string(objPath), "/")
+	ID, _ := strconv.Atoi(s[len(s)-1])
 	network := WPANetwork{busObject: obj, Object: objPath, ID: ID}
 	network.readEnable()
 	network.readProp()
